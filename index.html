@@ -3,239 +3,430 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Lux VTT Mobile</title>
+    <title>Lux VTT Mobile - Completo</title>
     <style>
-        /* --- RESET & BASE --- */
-        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
-        body { overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+        /* --- ESTILO GERAL --- */
+        :root { --primary: #d35400; --dark: #1e1e1e; --semi: rgba(0,0,0,0.7); }
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; margin: 0; padding: 0; }
+        body { overflow: hidden; background: #000; font-family: sans-serif; color: white; }
 
-        /* --- 1. MENSAGEM DE ROTAÇÃO (Bloqueio) --- */
-        #orientation-warning {
-            position: fixed;
-            top: 0; left: 0; width: 100vw; height: 100vh;
-            background: #1a1a1a;
-            z-index: 9999;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            text-align: center;
-            padding: 20px;
-            transition: opacity 0.5s;
+        /* --- AVISO DE ROTAÇÃO --- */
+        #rotate-msg {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: #111; z-index: 9999; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; text-align: center;
         }
+        @media (orientation: landscape) { #rotate-msg { display: none; } }
+
+        /* --- AREA DO JOGO (VIEWPORT) --- */
+        #game-viewport {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            overflow: hidden; background: #222;
+        }
+
+        /* O "Mundo" que será movido e zoomado */
+        #world-container {
+            transform-origin: 0 0;
+            position: absolute; top: 0; left: 0;
+        }
+
+        /* Camadas */
+        .layer { position: absolute; top: 0; left: 0; pointer-events: none; }
+        #map-img { display: block; pointer-events: none; }
+        #grid-layer { width: 100%; height: 100%; opacity: 0.5; z-index: 2; }
+        #effects-layer { width: 100%; height: 100%; z-index: 3; pointer-events: none; }
         
-        /* Ícone de girar animado */
-        .rotate-icon {
-            font-size: 60px;
-            margin-bottom: 20px;
-            animation: rotate-anim 2s infinite ease-in-out;
+        /* Tokens (Desenhados em HTML para facilitar interação no DOM ou Canvas) */
+        .token {
+            position: absolute; width: 50px; height: 50px;
+            border-radius: 50%; border: 2px solid white;
+            background-size: cover; background-position: center;
+            box-shadow: 0 0 5px black; z-index: 4;
+            pointer-events: auto; /* Tokens recebem toque */
+            transition: transform 0.1s;
         }
-        @keyframes rotate-anim {
-            0% { transform: rotate(0deg); }
-            50% { transform: rotate(-90deg); }
-            100% { transform: rotate(0deg); }
-        }
+        .token.selected { border-color: var(--primary); box-shadow: 0 0 10px var(--primary); }
 
-        /* --- LOGICA DE EXIBIÇÃO DA MENSAGEM --- */
-        /* Por padrão (Portrait), mostramos o aviso. */
-        #ui-layer, #map-container { display: none; } 
-        
-        /* Quando estiver em PAISAGEM (Landscape), escondemos o aviso e mostramos o jogo */
-        @media (orientation: landscape) {
-            #orientation-warning { display: none; }
-            #ui-layer, #map-container { display: block; }
-        }
-
-        /* --- 2. CAMADA DO MAPA --- */
-        #map-container {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100vw; height: 100vh;
-            background: radial-gradient(circle, #333, #000); /* Placeholder */
-            /* Aqui viria seu canvas */
-            background-image: linear-gradient(#333 1px, transparent 1px),
-            linear-gradient(90deg, #333 1px, transparent 1px);
-            background-size: 50px 50px;
-            z-index: 0;
-        }
-
-        /* --- 3. UI FLUTUANTE (LAYOUT HORIZONTAL) --- */
+        /* --- INTERFACE (UI) --- */
         #ui-layer {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none;
-            z-index: 10;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 100;
         }
 
-        /* Barra Lateral ESQUERDA (Menus) */
-        .hud-side-left {
-            position: absolute;
-            left: 10px; top: 50%;
-            transform: translateY(-50%);
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            pointer-events: auto;
+        /* Botões Flutuantes */
+        .fab {
+            width: 45px; height: 45px; border-radius: 50%; border: none;
+            background: rgba(50,50,50,0.8); color: white; font-size: 20px;
+            display: flex; align-items: center; justify-content: center;
+            pointer-events: auto; backdrop-filter: blur(4px);
+            border: 1px solid #555; active: scale(0.95); margin-bottom: 10px;
         }
+        .fab.primary { background: var(--primary); border-color: #e67e22; }
 
-        /* Barra Lateral DIREITA (Ações) */
-        .hud-side-right {
-            position: absolute;
-            right: 10px; top: 50%;
-            transform: translateY(-50%);
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            background: rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(4px);
-            padding: 10px;
-            border-radius: 30px;
-            pointer-events: auto;
+        /* Barras Laterais de Controle */
+        .dock-left, .dock-right {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            display: flex; flex-direction: column; padding: 10px;
         }
+        .dock-left { left: 0; }
+        .dock-right { right: 0; }
 
-        /* Barra TOPO (Status/Turno) */
-        .hud-top-status {
-            position: absolute;
-            top: 0; left: 0; width: 100%;
-            text-align: center;
-            padding: 5px;
-            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
-            color: #ddd;
-            font-size: 0.9rem;
-            pointer-events: none;
-        }
-
-        /* Estilo dos Botões */
-        .btn-icon {
-            background: rgba(255,255,255,0.1);
-            border: 1px solid rgba(255,255,255,0.2);
-            color: white;
-            font-size: 20px;
-            width: 48px; height: 48px;
-            border-radius: 50%;
-            cursor: pointer;
-            transition: 0.2s;
-        }
-        .btn-icon:active { background: rgba(255,255,255,0.4); transform: scale(0.95); }
-        
-        .btn-dice {
-            background: #d35400; /* Laranja destaque */
-            border-color: #e67e22;
-            width: 58px; height: 58px;
-            font-size: 28px;
-            box-shadow: 0 0 15px rgba(211, 84, 0, 0.6);
-        }
-
-        /* --- 4. DRAWERS (GAVETAS) --- */
+        /* --- GAVETAS (DRAWERS) --- */
         .drawer {
-            position: fixed;
-            top: 0; bottom: 0;
-            background: rgba(30, 30, 30, 0.95);
-            width: 400px; /* Fixo em desktop/tablet */
-            max-width: 50vw; /* Máximo 50% da tela em mobile landscape */
-            z-index: 20;
-            transition: transform 0.3s ease;
-            box-shadow: 0 0 20px rgba(0,0,0,0.8);
-            border-left: 1px solid #444;
-            display: flex;
-            flex-direction: column;
+            position: fixed; top: 0; bottom: 0; width: 300px; max-width: 60vw;
+            background: rgba(30,30,30,0.95); z-index: 200;
+            transition: transform 0.3s; padding: 15px;
+            display: flex; flex-direction: column; border-right: 1px solid #444;
+            pointer-events: auto;
         }
+        .drawer.left { left: 0; transform: translateX(-100%); }
+        .drawer.right { right: 0; transform: translateX(100%); border-left: 1px solid #444; border-right: none; }
+        .drawer.open { transform: translateX(0); }
+        
+        .drawer h3 { border-bottom: 1px solid #555; padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between;}
+        .control-group { margin-bottom: 20px; }
+        .control-group label { display: block; margin-bottom: 5px; color: #aaa; font-size: 0.9em; }
+        
+        /* Inputs */
+        input[type="file"] { display: none; } /* Escondido, acionado por botão */
+        .btn-full { width: 100%; padding: 10px; background: #444; border: none; color: white; margin-bottom: 5px; border-radius: 5px; }
+        .btn-full:active { background: #666; }
 
-        .drawer.right { right: 0; transform: translateX(100%); }
-        .drawer.left { left: 0; transform: translateX(-100%); border-right: 1px solid #444; border-left: none; }
-        .drawer.active { transform: translateX(0); }
-
-        .drawer-header {
-            padding: 10px 15px;
-            background: #252525;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #444;
-            color: white;
+        /* --- INICIATIVA --- */
+        #initiative-tracker {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            width: 300px; background: rgba(0,0,0,0.8); border-radius: 10px;
+            pointer-events: auto; overflow: hidden; max-height: 50vh; display: flex; flex-direction: column;
         }
-        .drawer-body { flex: 1; padding: 15px; color: #ccc; overflow-y: auto; }
+        #init-header { padding: 10px; background: #333; display: flex; justify-content: space-between; align-items: center; }
+        #init-list { list-style: none; overflow-y: auto; }
+        .init-item { padding: 8px; border-bottom: 1px solid #444; display: flex; justify-content: space-between; }
+        .init-item.active { border-left: 4px solid var(--primary); background: rgba(211, 84, 0, 0.2); }
+
+        /* --- EFEITOS VISUAIS CSS --- */
+        .fx-rain {
+            background: url('https://i.imgur.com/71O8v2H.png'); /* Placeholder textura chuva */
+            animation: rain 0.5s linear infinite; opacity: 0.3;
+        }
+        .fx-fog {
+            background: url('https://i.imgur.com/h5l5d2d.png'); /* Placeholder textura nuvem */
+            background-size: cover; animation: fog 20s linear infinite alternate; opacity: 0.4;
+        }
+        .grid-sq { background-image: linear-gradient(#555 1px, transparent 1px), linear-gradient(90deg, #555 1px, transparent 1px); background-size: 50px 50px; }
+
+        @keyframes rain { from {background-position: 0 0;} to {background-position: 20% 100%;} }
+        @keyframes fog { from {background-position: 0 0;} to {background-position: 100% 0;} }
 
     </style>
 </head>
 <body>
 
-    <div id="orientation-warning">
-        <div class="rotate-icon">📱 ➔ 💻</div>
-        <h2>Melhor Experiência em Paisagem</h2>
-        <p>O Lux VTT precisa de espaço.<br>Por favor, vire seu dispositivo.</p>
-    </div>
+    <div id="rotate-msg"><h1>📱 ➔ 💻<br>Vire o celular</h1></div>
 
-    <div id="map-container"></div>
+    <div id="game-viewport">
+        <div id="world-container">
+            <img id="map-img" src="" alt="" style="display:none;">
+            <div id="grid-layer" class="layer"></div>
+            <div id="tokens-layer" class="layer"></div>
+            <div id="effects-layer" class="layer"></div>
+        </div>
+    </div>
 
     <div id="ui-layer">
         
-        <div class="hud-top-status">
-            Turno 3: <strong>Guerreiro (Você)</strong>
+        <div id="initiative-tracker" style="display:none;">
+            <div id="init-header">
+                <span>⚔️ Iniciativa</span>
+                <button onclick="toggleInit()" style="background:none;border:none;color:white;">▼</button>
+            </div>
+            <ul id="init-list">
+                </ul>
+            <div style="padding:5px; display:flex;">
+                <button class="btn-full" onclick="nextTurn()">Próximo Turno</button>
+            </div>
         </div>
 
-        <div class="hud-side-left">
-            <button class="btn-icon" onclick="toggleDrawer('menu-drawer')">☰</button>
-            <button class="btn-icon" onclick="toggleDrawer('chat-drawer')">💬</button>
+        <div class="dock-left">
+            <button class="fab" onclick="toggleDrawer('drawer-map')">🗺️</button>
+            <button class="fab" onclick="toggleDrawer('drawer-effects')">✨</button>
         </div>
 
-        <div class="hud-side-right">
-            <button class="btn-icon" title="Medir">📏</button>
-            <button class="btn-icon" title="Mover">✋</button>
-            <button class="btn-icon btn-dice" onclick="rollDice()" title="Rolar">🎲</button>
-            <button class="btn-icon" title="Ping">📍</button>
-            <button class="btn-icon" onclick="toggleDrawer('sheet-drawer')" title="Ficha">📄</button>
-        </div>
-    </div>
-
-    <div id="menu-drawer" class="drawer left">
-        <div class="drawer-header">Menu <button class="btn-icon" style="width:30px;height:30px;font-size:14px" onclick="closeAll()">✕</button></div>
-        <div class="drawer-body">Opções do Sistema...</div>
-    </div>
-
-    <div id="chat-drawer" class="drawer left">
-        <div class="drawer-header">Chat <button class="btn-icon" style="width:30px;height:30px;font-size:14px" onclick="closeAll()">✕</button></div>
-        <div class="drawer-body">
-            <p><strong>GM:</strong> Rolem iniciativa!</p>
+        <div class="dock-right">
+            <button class="fab" onclick="toggleInitDisplay()">⚔️</button>
+            <button class="fab" onclick="toggleDrawer('drawer-tokens')">♟️</button>
+            <button class="fab primary" onclick="resetView()">🎯</button>
         </div>
     </div>
 
-    <div id="sheet-drawer" class="drawer right">
-        <div class="drawer-header">Ficha <button class="btn-icon" style="width:30px;height:30px;font-size:14px" onclick="closeAll()">✕</button></div>
-        <div class="drawer-body">
-            <h3>HP: 24/30</h3>
-            <hr style="border-color:#444; margin: 10px 0">
-            <p>Ataque Espada Longa (+5)</p>
+    <div id="drawer-map" class="drawer left">
+        <h3>Mapa & Grid <span onclick="closeDrawers()">✕</span></h3>
+        
+        <div class="control-group">
+            <label>Imagem do Mapa</label>
+            <button class="btn-full" onclick="document.getElementById('upload-map').click()">Carregar Mapa (Galeria)</button>
+            <input type="file" id="upload-map" accept="image/*" onchange="loadMap(this)">
+        </div>
+
+        <div class="control-group">
+            <label>Grid</label>
+            <button class="btn-full" onclick="toggleGrid()">Alternar Grid (50px)</button>
+        </div>
+    </div>
+
+    <div id="drawer-effects" class="drawer left">
+        <h3>Efeitos Visuais <span onclick="closeDrawers()">✕</span></h3>
+        <button class="btn-full" onclick="toggleEffect('fx-rain')">🌧️ Chuva</button>
+        <button class="btn-full" onclick="toggleEffect('fx-fog')">🌫️ Névoa</button>
+        <button class="btn-full" onclick="toggleEffect('night')">🌑 Escuridão</button>
+    </div>
+
+    <div id="drawer-tokens" class="drawer right">
+        <h3>Tokens <span onclick="closeDrawers()">✕</span></h3>
+        
+        <div class="control-group">
+            <label>Novo Token</label>
+            <button class="btn-full" onclick="document.getElementById('upload-token').click()">➕ Criar da Imagem</button>
+            <input type="file" id="upload-token" accept="image/*" onchange="createToken(this)">
+        </div>
+        
+        <div class="control-group">
+            <label>Lista de Combate</label>
+            <input type="text" id="init-name" placeholder="Nome" style="width:60%; padding:5px;">
+            <input type="number" id="init-val" placeholder="Val" style="width:30%; padding:5px;">
+            <button class="btn-full" style="margin-top:5px;" onclick="addInitiative()">Adicionar à Iniciativa</button>
+        </div>
+        
+        <div class="control-group">
+            <button class="btn-full" style="background:#c0392b" onclick="deleteSelectedToken()">🗑️ Deletar Selecionado</button>
         </div>
     </div>
 
     <script>
+        // --- ESTADO GLOBAL ---
+        const state = {
+            scale: 1,
+            panX: 0,
+            panY: 0,
+            tokens: [],
+            initiative: [],
+            turnIndex: 0,
+            selectedTokenId: null
+        };
+
+        const world = document.getElementById('world-container');
+        const mapImg = document.getElementById('map-img');
+        const tokenLayer = document.getElementById('tokens-layer');
+
+        // --- SISTEMA DE GESTOS (PAN & ZOOM & DRAG) ---
+        let isDraggingMap = false;
+        let isDraggingToken = false;
+        let startX, startY;
+        let initialPinchDist = null;
+        let initialScale = 1;
+
+        const viewport = document.getElementById('game-viewport');
+
+        viewport.addEventListener('touchstart', handleTouchStart, {passive: false});
+        viewport.addEventListener('touchmove', handleTouchMove, {passive: false});
+        viewport.addEventListener('touchend', handleTouchEnd);
+
+        function handleTouchStart(e) {
+            if(e.touches.length === 2) {
+                // Zoom
+                initialPinchDist = getDist(e.touches);
+                initialScale = state.scale;
+                return;
+            }
+            
+            // Check se tocou num token
+            if(e.target.classList.contains('token')) {
+                selectToken(e.target.id);
+                isDraggingToken = true;
+                // Offset para arrastar pelo centro
+                return;
+            }
+
+            // Se não, é Pan no mapa
+            isDraggingMap = true;
+            startX = e.touches[0].clientX - state.panX;
+            startY = e.touches[0].clientY - state.panY;
+        }
+
+        function handleTouchMove(e) {
+            e.preventDefault(); // Evitar scroll nativo
+
+            if(e.touches.length === 2 && initialPinchDist) {
+                // Lógica de Zoom
+                const currentDist = getDist(e.touches);
+                state.scale = initialScale * (currentDist / initialPinchDist);
+                updateTransform();
+                return;
+            }
+
+            if(isDraggingToken && state.selectedTokenId) {
+                // Mover Token (Considerando o zoom do mundo)
+                const token = document.getElementById(state.selectedTokenId);
+                const touch = e.touches[0];
+                
+                // Conversão de Coordenada de Tela para Mundo
+                // x_world = (x_screen - panX) / scale
+                const worldX = (touch.clientX - state.panX) / state.scale;
+                const worldY = (touch.clientY - state.panY) / state.scale;
+
+                token.style.left = (worldX - 25) + 'px'; // -25 é metade do token (50px)
+                token.style.top = (worldY - 25) + 'px';
+                return;
+            }
+
+            if(isDraggingMap) {
+                state.panX = e.touches[0].clientX - startX;
+                state.panY = e.touches[0].clientY - startY;
+                updateTransform();
+            }
+        }
+
+        function handleTouchEnd(e) {
+            isDraggingMap = false;
+            isDraggingToken = false;
+            if(e.touches.length < 2) initialPinchDist = null;
+        }
+
+        function getDist(touches) {
+            return Math.hypot(
+                touches[0].clientX - touches[1].clientX,
+                touches[0].clientY - touches[1].clientY
+            );
+        }
+
+        function updateTransform() {
+            world.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+        }
+
+        function resetView() {
+            state.scale = 1; state.panX = 0; state.panY = 0;
+            updateTransform();
+        }
+
+        // --- SISTEMA DE MAPA ---
+        function loadMap(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    mapImg.src = e.target.result;
+                    mapImg.style.display = 'block';
+                    // Ajustar tamanho do mundo
+                    mapImg.onload = () => {
+                        world.style.width = mapImg.width + 'px';
+                        world.style.height = mapImg.height + 'px';
+                    }
+                    closeDrawers();
+                }
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        function toggleGrid() {
+            document.getElementById('grid-layer').classList.toggle('grid-sq');
+        }
+
+        // --- SISTEMA DE TOKENS ---
+        let tokenCounter = 0;
+        function createToken(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const id = 'tok_' + tokenCounter++;
+                    const token = document.createElement('div');
+                    token.className = 'token';
+                    token.id = id;
+                    token.style.backgroundImage = `url(${e.target.result})`;
+                    // Posiciona no centro da tela atual (aproximado)
+                    const spawnX = (-state.panX + window.innerWidth/2) / state.scale;
+                    const spawnY = (-state.panY + window.innerHeight/2) / state.scale;
+                    token.style.left = spawnX + 'px';
+                    token.style.top = spawnY + 'px';
+                    
+                    tokenLayer.appendChild(token);
+                    selectToken(id);
+                    closeDrawers();
+                }
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        function selectToken(id) {
+            document.querySelectorAll('.token').forEach(t => t.classList.remove('selected'));
+            const t = document.getElementById(id);
+            if(t) {
+                t.classList.add('selected');
+                state.selectedTokenId = id;
+            }
+        }
+
+        function deleteSelectedToken() {
+            if(state.selectedTokenId) {
+                document.getElementById(state.selectedTokenId).remove();
+                state.selectedTokenId = null;
+                closeDrawers();
+            }
+        }
+
+        // --- EFEITOS ---
+        function toggleEffect(className) {
+            const layer = document.getElementById('effects-layer');
+            if(className === 'night') {
+                layer.style.backgroundColor = layer.style.backgroundColor ? '' : 'rgba(0,0,0,0.7)';
+            } else {
+                layer.classList.toggle(className);
+            }
+        }
+
+        // --- INICIATIVA ---
+        function toggleInitDisplay() {
+            const el = document.getElementById('initiative-tracker');
+            el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+        }
+
+        function addInitiative() {
+            const name = document.getElementById('init-name').value;
+            const val = parseInt(document.getElementById('init-val').value);
+            if(name && !isNaN(val)) {
+                state.initiative.push({name, val});
+                state.initiative.sort((a,b) => b.val - a.val); // Ordem decrescente
+                renderInit();
+                closeDrawers();
+                toggleInitDisplay();
+            }
+        }
+
+        function renderInit() {
+            const list = document.getElementById('init-list');
+            list.innerHTML = '';
+            state.initiative.forEach((char, index) => {
+                const li = document.createElement('li');
+                li.className = 'init-item ' + (index === state.turnIndex ? 'active' : '');
+                li.innerHTML = `<span>${char.val}</span> <strong>${char.name}</strong>`;
+                list.appendChild(li);
+            });
+        }
+
+        function nextTurn() {
+            if(state.initiative.length === 0) return;
+            state.turnIndex = (state.turnIndex + 1) % state.initiative.length;
+            renderInit();
+        }
+
+        // --- UTILITARIOS UI ---
         function toggleDrawer(id) {
             const el = document.getElementById(id);
-            const isActive = el.classList.contains('active');
-            closeAll(); // Fecha outros para focar
-            if (!isActive) el.classList.add('active');
+            const isOpen = el.classList.contains('open');
+            closeDrawers();
+            if(!isOpen) el.classList.add('open');
         }
 
-        function closeAll() {
-            document.querySelectorAll('.drawer').forEach(d => d.classList.remove('active'));
+        function closeDrawers() {
+            document.querySelectorAll('.drawer').forEach(d => d.classList.remove('open'));
         }
-
-        function rollDice() {
-            // Exemplo de feedback visual rápido
-            const btn = document.querySelector('.btn-dice');
-            btn.style.transform = "rotate(360deg)";
-            setTimeout(() => btn.style.transform = "none", 500);
-            alert("Rolagem!");
-        }
-
-        // Tenta colocar em Fullscreen ao girar para ganhar mais espaço
-        window.addEventListener("orientationchange", function() {
-            if (screen.orientation.type.includes("landscape")) {
-                document.documentElement.requestFullscreen().catch(e => {});
-            }
-        });
     </script>
 </body>
 </html>
